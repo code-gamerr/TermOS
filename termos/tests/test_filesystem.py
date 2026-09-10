@@ -75,3 +75,57 @@ class FileSystemTest(unittest.TestCase):
 
     def test_mkdir_existing_and_rmdir(self) -> None:
         self.fs.mkdir("/tmp/work")
+        with self.assertRaises(AlreadyExistsError):
+            self.fs.mkdir("/tmp/work")
+        with self.assertRaises(DirectoryNotEmptyError):
+            self.fs.rmdir("/tmp")
+        self.fs.rmdir("/tmp/work")
+        with self.assertRaises(NotFoundError):
+            self.fs.resolve("/tmp/work")
+
+    def test_cannot_remove_directory_with_rm(self) -> None:
+        with self.assertRaises(NotAFileError):
+            self.fs.remove("/tmp")
+
+
+class ShellFilesystemTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.kernel = Kernel()
+        self.shell = Shell(self.kernel)
+
+    def test_kernel_owns_the_filesystem(self) -> None:
+        self.assertIs(self.shell._kernel.filesystem, self.kernel.components["filesystem"])
+        self.assertEqual(self.shell.path, "/home/root")
+        self.assertEqual(self.shell.cwd, "~")
+
+    def test_shell_file_commands(self) -> None:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.shell.execute("mkdir projects")
+            self.shell.execute("cd projects")
+            self.shell.execute("touch hello.txt")
+            self.shell.execute('write hello.txt "hello world"')
+            self.shell.execute("cat hello.txt")
+            self.shell.execute("cd missing")
+            self.shell.execute("cat missing.txt")
+            self.shell.execute("cd ..")
+            self.shell.execute("mkdir projects")
+
+        self.assertEqual(self.shell.path, "/home/root")
+        self.assertEqual(
+            self.kernel.filesystem.read("/home/root/projects/hello.txt"),
+            "hello world",
+        )
+        text = output.getvalue()
+        self.assertIn("hello world", text)
+        self.assertIn("cd: missing: No such directory", text)
+        self.assertIn("cat: missing.txt: No such file or directory", text)
+        self.assertIn("mkdir: cannot create directory: File exists", text)
+
+        self.shell.execute("rm projects/hello.txt")
+        with self.assertRaises(NotFoundError):
+            self.kernel.filesystem.resolve("/home/root/projects/hello.txt")
+
+
+if __name__ == "__main__":
+    unittest.main()
