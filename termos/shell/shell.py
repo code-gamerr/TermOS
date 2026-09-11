@@ -2,27 +2,35 @@
 
 from __future__ import annotations
 
+import getpass
 import os
 import shlex
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from core.constants import DEFAULT_USER, HOME_PATH
+from core.constants import HOME_PATH
 from core.errors import (
     AlreadyExistsError,
+    AuthenticationError,
     CommandNotFoundError,
     DirectoryNotEmptyError,
     FileSystemError,
     NotADirectoryError,
     NotAFileError,
     NotFoundError,
+    PermissionDeniedError,
+    ProcessError,
     ShellError,
 )
 from filesystem.directory import Directory
 from filesystem.node import Node
+from permissions.permissions import Permissions
+from processes.process import ProcessState
 
 if TYPE_CHECKING:
     from kernel.kernel import Kernel
+    from users.user import User
 
 CommandHandler = Callable[[list[str]], None]
 
@@ -30,14 +38,16 @@ CommandHandler = Callable[[list[str]], None]
 class Shell:
     """Interactive command shell.
 
-    Owns prompt, parsing, history, and the built-in commands available in
-    this part. Later parts can register more commands on ``commands``.
+    Uses the kernel for filesystem, users, and processes. Never owns those
+    subsystems itself.
     """
 
-    def __init__(self, kernel: Kernel, user: str = DEFAULT_USER, cwd: str = HOME_PATH) -> None:
+    def __init__(self, kernel: Kernel, cwd: str | None = None) -> None:
         self._kernel = kernel
-        self.user = user
-        self.path = kernel.filesystem.abspath(cwd, "/")
+        user = kernel.users.require_current()
+        start = cwd or user.home or HOME_PATH
+        self.path = kernel.filesystem.abspath(start, "/")
+        kernel.filesystem.set_home(user.home)
         self.history: list[str] = []
         self._running = False
         self.commands: dict[str, CommandHandler] = {
@@ -56,7 +66,26 @@ class Shell:
             "rm": self._cmd_rm,
             "rmdir": self._cmd_rmdir,
             "tree": self._cmd_tree,
+            "whoami": self._cmd_whoami,
+            "id": self._cmd_id,
+            "su": self._cmd_su,
+            "passwd": self._cmd_passwd,
+            "users": self._cmd_users,
+            "groups": self._cmd_groups,
+            "chmod": self._cmd_chmod,
+            "chown": self._cmd_chown,
+            "ps": self._cmd_ps,
+            "top": self._cmd_top,
+            "kill": self._cmd_kill,
+            "sleep": self._cmd_sleep,
+            "jobs": self._cmd_jobs,
+            "scheduler": self._cmd_scheduler,
         }
+
+    @property
+    def user(self) -> str:
+        """Current username."""
+        return self._current().username
 
     @property
     def cwd(self) -> str:
@@ -67,6 +96,9 @@ class Shell:
     def prompt(self) -> str:
         """Shell prompt, e.g. ``root@termos:~$ ``."""
         return f"{self.user}@{self._kernel.hostname}:{self.cwd}$ "
+
+    def _current(self) -> User:
+        return self._kernel.users.require_current()
 
     def run(self) -> None:
         """Read and execute commands until the user exits."""
@@ -110,6 +142,8 @@ class Shell:
             handler(args)
         except ShellError as exc:
             print(exc)
+        except PermissionDeniedError:
+            print("Permission denied")
 
     @staticmethod
     def parse(line: str) -> list[str]:
@@ -152,7 +186,7 @@ class Shell:
             raise ShellError("mkdir: missing operand")
         path = args[0]
         try:
-            self._kernel.filesystem.mkdir(path, self.path)
+            self._kernel.filesystem.mkdir(path, self.path, user=self._current())
         except AlreadyExistsError:
             raise ShellError("mkdir: cannot create directory: File exists") from None
         except NotFoundError:
@@ -170,6 +204,7 @@ class Shell:
             raise ShellError(f"cd: {target}: Not a directory") from None
         if not isinstance(node, Directory):
             raise ShellError(f"cd: {target}: Not a directory")
+        Permissions.require_execute(self._current(), node)
         self.path = self._kernel.filesystem.abspath(target, self.path)
 
     def _cmd_pwd(self, _args: list[str]) -> None:
@@ -183,6 +218,7 @@ class Shell:
         except NotFoundError:
             raise ShellError(f"ls: {target}: No such file or directory") from None
         if isinstance(node, Directory):
+            Permissions.require_read(self._current(), node)
             entries = _dir_entries(node, "a" in flags)
         else:
             entries = [(node.name, node)]
@@ -198,7 +234,7 @@ class Shell:
             raise ShellError("touch: missing operand")
         path = args[0]
         try:
-            self._kernel.filesystem.touch(path, self.path)
+            self._kernel.filesystem.touch(path, self.path, user=self._current())
         except NotFoundError:
             raise ShellError(f"touch: {path}: No such file or directory") from None
         except NotAFileError:
@@ -209,7 +245,7 @@ class Shell:
             raise ShellError("cat: missing operand")
         for path in args:
             try:
-                text = self._kernel.filesystem.read(path, self.path)
+                text = self._kernel.filesystem.read(path, self.path, user=self._current())
             except NotFoundError:
                 raise ShellError(f"cat: {path}: No such file or directory") from None
             except NotAFileError:
@@ -223,7 +259,7 @@ class Shell:
             raise ShellError("write: missing operand")
         path, contents = args[0], " ".join(args[1:])
         try:
-            self._kernel.filesystem.write(path, contents, self.path)
+            self._kernel.filesystem.write(path, contents, self.path, user=self._current())
         except NotFoundError:
             raise ShellError(f"write: {path}: No such file or directory") from None
         except NotAFileError:
@@ -234,7 +270,7 @@ class Shell:
             raise ShellError("rm: missing operand")
         path = args[0]
         try:
-            self._kernel.filesystem.remove(path, self.path)
+            self._kernel.filesystem.remove(path, self.path, user=self._current())
         except NotFoundError:
             raise ShellError(f"rm: {path}: No such file or directory") from None
         except NotAFileError:
@@ -245,7 +281,7 @@ class Shell:
             raise ShellError("rmdir: missing operand")
         path = args[0]
         try:
-            self._kernel.filesystem.rmdir(path, self.path)
+            self._kernel.filesystem.rmdir(path, self.path, user=self._current())
         except NotFoundError:
             raise ShellError(f"rmdir: {path}: No such file or directory") from None
         except NotADirectoryError:
@@ -263,6 +299,198 @@ class Shell:
             raise ShellError(f"tree: {path}: No such file or directory") from None
         _print_tree(rendered)
 
+    def _cmd_whoami(self, _args: list[str]) -> None:
+        print(self.user)
+
+    def _cmd_id(self, _args: list[str]) -> None:
+        user = self._current()
+        primary = self._kernel.users.get_group_by_gid(user.gid).name
+        groups = ",".join(user.groups)
+        print(f"uid={user.uid}({user.username}) gid={user.gid}({primary}) groups={groups}")
+
+    def _cmd_su(self, args: list[str]) -> None:
+        if not args:
+            raise ShellError("su: missing username")
+        username = args[0]
+        # ponytail: optional second arg for tests / non-interactive demos
+        password = args[1] if len(args) > 1 else getpass.getpass("Password: ")
+        try:
+            user = self._kernel.users.switch_user(username, password)
+        except NotFoundError:
+            raise ShellError(f"su: user {username} does not exist") from None
+        except AuthenticationError:
+            raise ShellError("su: Authentication failure") from None
+        self._kernel.filesystem.set_home(user.home)
+        self.path = user.home
+
+    def _cmd_passwd(self, args: list[str]) -> None:
+        current = self._current()
+        target_name = args[0] if args else current.username
+        if target_name != current.username and not current.is_root:
+            raise ShellError("passwd: Permission denied")
+        try:
+            target = self._kernel.users.get_user(target_name)
+        except NotFoundError:
+            raise ShellError(f"passwd: user {target_name} does not exist") from None
+        if len(args) >= 2:
+            new_password = args[1]
+        else:
+            new_password = getpass.getpass("New password: ")
+            confirm = getpass.getpass("Retype password: ")
+            if new_password != confirm:
+                raise ShellError("passwd: passwords do not match")
+        target.set_password(new_password)
+        print(f"passwd: password updated for {target_name}")
+
+    def _cmd_users(self, _args: list[str]) -> None:
+        print(" ".join(sorted(self._kernel.users.users)))
+
+    def _cmd_groups(self, args: list[str]) -> None:
+        if args:
+            try:
+                user = self._kernel.users.get_user(args[0])
+            except NotFoundError:
+                raise ShellError(f"groups: {args[0]}: no such user") from None
+            print(f"{user.username} : {' '.join(user.groups)}")
+            return
+        print(" ".join(sorted(self._kernel.users.groups)))
+
+    def _cmd_chmod(self, args: list[str]) -> None:
+        if len(args) < 2:
+            raise ShellError("chmod: missing operand")
+        mode_text, path = args[0], args[1]
+        try:
+            mode = Permissions.parse_mode(mode_text)
+        except ValueError as exc:
+            raise ShellError(f"chmod: {exc}") from None
+        try:
+            self._kernel.filesystem.chmod(path, mode, self.path, user=self._current())
+        except NotFoundError:
+            raise ShellError(f"chmod: {path}: No such file or directory") from None
+
+    def _cmd_chown(self, args: list[str]) -> None:
+        if len(args) < 2:
+            raise ShellError("chown: missing operand")
+        owner_spec, path = args[0], args[1]
+        owner_name, _, group_name = owner_spec.partition(":")
+        try:
+            owner = self._kernel.users.get_user(owner_name)
+        except NotFoundError:
+            raise ShellError(f"chown: invalid user: {owner_name}") from None
+        group = None
+        gid = None
+        if group_name:
+            try:
+                group = self._kernel.users.get_group(group_name)
+            except NotFoundError:
+                raise ShellError(f"chown: invalid group: {group_name}") from None
+            gid = group.gid
+            group_name = group.name
+        else:
+            group_name = None
+        try:
+            self._kernel.filesystem.chown(
+                path,
+                owner.username,
+                group_name,
+                self.path,
+                uid=owner.uid,
+                gid=gid,
+                user=self._current(),
+            )
+        except NotFoundError:
+            raise ShellError(f"chown: {path}: No such file or directory") from None
+
+    def _cmd_ps(self, _args: list[str]) -> None:
+        self._print_process_table(self._kernel.processes.active())
+
+    def _cmd_top(self, _args: list[str]) -> None:
+        processes = sorted(
+            self._kernel.processes.active(),
+            key=lambda process: process.cpu_usage,
+            reverse=True,
+        )
+        self._print_process_table(processes)
+
+    def _cmd_kill(self, args: list[str]) -> None:
+        if not args:
+            raise ShellError("kill: missing pid")
+        try:
+            pid = int(args[0])
+        except ValueError as exc:
+            raise ShellError("kill: invalid pid") from exc
+        try:
+            self._kernel.processes.terminate(pid)
+        except NotFoundError:
+            raise ShellError(f"kill: ({pid}): No such process") from None
+        except ProcessError as exc:
+            raise ShellError(f"kill: {exc}") from None
+        print(f"[ OK ] Process {pid} terminated.")
+
+    def _cmd_sleep(self, args: list[str]) -> None:
+        if not args:
+            raise ShellError("sleep: missing operand")
+        try:
+            seconds = float(args[0])
+        except ValueError as exc:
+            raise ShellError("sleep: invalid time") from exc
+        shell = self._kernel.processes.get(2)
+        self._kernel.processes.sleep(shell.pid)
+        try:
+            time.sleep(max(0.0, seconds))
+        finally:
+            self._kernel.processes.wake(shell.pid)
+            shell.set_state(ProcessState.RUNNING)
+            self._kernel.scheduler.running_pid = shell.pid
+
+    def _cmd_jobs(self, _args: list[str]) -> None:
+        jobs = [
+            self._kernel.processes.get(pid)
+            for pid in self._kernel.processes.jobs
+            if pid in self._kernel.processes.processes
+            and self._kernel.processes.get(pid).state
+            in {ProcessState.SLEEPING, ProcessState.WAITING}
+        ]
+        if not jobs:
+            return
+        for process in jobs:
+            print(f"[{process.pid}]  {process.state.value}  {process.command}")
+
+    def _cmd_scheduler(self, _args: list[str]) -> None:
+        status = self._kernel.scheduler.status()
+        print("Scheduler")
+        print("---------")
+        print(f"Algorithm: {status['algorithm']}")
+        print(f"Quantum: {status['quantum_ms']}ms")
+        print()
+        running = status["running"]
+        print("RUNNING:")
+        if running is None:
+            print("(none)")
+        else:
+            print(f"PID {running.pid} {running.name}")
+        print()
+        print("READY:")
+        ready = status["ready"]
+        if not ready:
+            print("(none)")
+        else:
+            for process in ready:
+                print(f"PID {process.pid} {process.name}")
+
+    def _print_process_table(self, processes: list) -> None:
+        print(f"{'PID':<5} {'USER':<8} {'STATE':<10} {'CPU':<6} {'MEM':<6} COMMAND")
+        for process in processes:
+            try:
+                username = self._kernel.users.get_user_by_uid(process.uid).username
+            except NotFoundError:
+                username = str(process.uid)
+            mem = f"{process.memory_mb:.0f}MB"
+            print(
+                f"{process.pid:<5} {username:<8} {process.state.value:<10} "
+                f"{process.cpu_usage:<6.1f} {mem:<6} {process.command}"
+            )
+
 
 def _split_flags(args: list[str]) -> tuple[set[str], list[str]]:
     flags: set[str] = set()
@@ -276,7 +504,11 @@ def _split_flags(args: list[str]) -> tuple[set[str], list[str]]:
 
 
 def _dir_entries(directory: Directory, show_all: bool) -> list[tuple[str, Node]]:
-    entries = [(name, child) for name, child in directory.children.items() if show_all or not name.startswith(".")]
+    entries = [
+        (name, child)
+        for name, child in directory.children.items()
+        if show_all or not name.startswith(".")
+    ]
     entries.sort(key=lambda item: item[0])
     if show_all:
         parent = directory.parent if isinstance(directory.parent, Directory) else directory
@@ -285,7 +517,6 @@ def _dir_entries(directory: Directory, show_all: bool) -> list[tuple[str, Node]]
 
 
 def _print_tree(rendered: str) -> None:
-    # cp1252 consoles cannot encode box drawing; keep the tree, drop the glyphs.
     try:
         print(rendered)
     except UnicodeEncodeError:
@@ -298,4 +529,4 @@ def _print_tree(rendered: str) -> None:
 
 def _long_listing(name: str, node: Node) -> str:
     kind = "d" if isinstance(node, Directory) else "-"
-    return f"{kind}{node.mode} {node.owner} {node.size} {name}"
+    return f"{kind}{node.mode_string} {node.owner} {node.group_name} {node.size} {name}"

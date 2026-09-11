@@ -1,4 +1,4 @@
-"""TERMOS kernel: boot state, uptime, and future service slots."""
+"""TERMOS kernel: boot state, uptime, and subsystem instances."""
 
 from __future__ import annotations
 
@@ -8,13 +8,14 @@ from typing import Any
 from core.constants import COMPONENT_NAMES, HOSTNAME, OS_NAME, OS_VERSION
 from core.errors import TermOSError
 from filesystem.filesystem import FileSystem
+from processes.process_manager import ProcessManager
+from users.user_manager import UserManager
 
 
 class Kernel:
     """Owns OS identity, lifecycle, and subsystem instances.
 
-    The filesystem is mounted in memory. Process, memory, user, and network
-    managers are still empty slots.
+    Memory and networking managers are still empty slots.
     """
 
     def __init__(self) -> None:
@@ -25,6 +26,9 @@ class Kernel:
         self._running = False
         self.components: dict[str, Any] = {name: None for name in COMPONENT_NAMES}
         self.components["filesystem"] = FileSystem()
+        self.components["user_manager"] = UserManager()
+        self.components["process_manager"] = ProcessManager()
+        self.filesystem.set_home(self.users.current.home if self.users.current else "/home/root")
 
     @property
     def filesystem(self) -> FileSystem:
@@ -33,6 +37,27 @@ class Kernel:
         if not isinstance(filesystem, FileSystem):
             raise TermOSError("filesystem is not available")
         return filesystem
+
+    @property
+    def users(self) -> UserManager:
+        """Return the kernel-owned user manager."""
+        manager = self.components["user_manager"]
+        if not isinstance(manager, UserManager):
+            raise TermOSError("user manager is not available")
+        return manager
+
+    @property
+    def processes(self) -> ProcessManager:
+        """Return the kernel-owned process manager."""
+        manager = self.components["process_manager"]
+        if not isinstance(manager, ProcessManager):
+            raise TermOSError("process manager is not available")
+        return manager
+
+    @property
+    def scheduler(self):
+        """Return the Round Robin scheduler."""
+        return self.processes.scheduler
 
     @property
     def is_running(self) -> bool:
@@ -47,11 +72,14 @@ class Kernel:
         return time.monotonic() - self._booted_at
 
     def boot(self) -> None:
-        """Mark the kernel as running and start the uptime clock."""
+        """Mark the kernel as running and start init + shell processes."""
         if self._running:
             raise TermOSError("kernel is already running")
         self._booted_at = time.monotonic()
         self._running = True
+        uid = self.users.current.uid if self.users.current else 0
+        if not self.processes.processes:
+            self.processes.bootstrap(uid=uid)
 
     def shutdown(self) -> None:
         """Stop the kernel. Safe to call more than once."""
@@ -66,6 +94,7 @@ class Kernel:
             "hostname": self.hostname,
             "uptime_seconds": round(self.uptime, 3),
             "state": "running" if self._running else "halted",
+            "user": self.users.current.username if self.users.current else None,
             "components": {
                 name: component is not None
                 for name, component in self.components.items()

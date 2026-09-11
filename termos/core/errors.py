@@ -43,3 +43,18 @@ class NotAFileError(FileSystemError):
 
 class DirectoryNotEmptyError(FileSystemError):
     """A directory still contains entries."""
+
+
+class PermissionDeniedError(TermOSError):
+    """The current user lacks permission for an operation."""
+
+    def __init__(self, message: str = "Permission denied") -> None:
+        super().__init__(message)
+
+
+class AuthenticationError(TermOSError):
+    """Login or password verification failed."""
+
+
+class ProcessError(TermOSError):
+    """A simulated process operation failed."""

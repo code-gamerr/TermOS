@@ -1,12 +1,10 @@
 # TERMOS
 
-TERMOS is a simulated mini operating system that runs entirely inside a terminal. It is not a real kernel. It is a Python program that mimics boot, a shell, and (in later parts) a virtual machine: filesystem, users, processes, memory, and networking.
+TERMOS is a simulated mini operating system that runs entirely inside a terminal. It is not a real kernel. It is a Python program that mimics boot, a shell, a virtual filesystem, users, permissions, processes, and a CPU scheduler.
 
 ## How to run
 
 Requires Python 3.11+.
-
-From the project root:
 
 ```bash
 python termos/main.py
@@ -20,47 +18,50 @@ python main.py
 
 Leave the shell with `exit` or Ctrl+D.
 
+Default passwords: `root` / `root`, `guest` / `guest`.
+
 ## Current features
 
-Part 1 — foundation and shell:
+Part 1 — foundation and shell: boot sequence, kernel, interactive prompt, `help`, `version`, `clear`, `echo`, `exit`.
 
-- Boot sequence
-- Kernel with name, version, uptime, boot, shutdown, and system info
-- Interactive shell prompt: `root@termos:~$`
-- Commands: `help`, `version`, `clear`, `echo`, `exit`
-- Quoted arguments and extra-space handling (`echo "hello world"`)
-- In-memory command history (arrow-key recall when `readline` is available)
-- Unknown-command errors
+Part 2 — in-memory filesystem: `/bin`, `/home/root`, `/home/guest`, `/etc`, `/tmp`, `/var`, plus `mkdir`, `cd`, `pwd`, `ls`, `touch`, `cat`, `write`, `rm`, `rmdir`, `tree`.
 
-Part 2 — in-memory filesystem:
+Part 3 — users and permissions:
 
-- Hierarchical filesystem that never touches the host disk
-- Initial tree: `/bin`, `/home/root`, `/etc`, `/tmp`, `/var`
-- Path resolution for absolute paths, relative paths, `.`, `..`, and `~`
-- Commands: `mkdir`, `cd`, `pwd`, `ls`, `ls -l`, `ls -a`, `touch`, `cat`, `write`, `rm`, `rmdir`, `tree`
-- Owner and permission fields are stored only; they are not enforced
+- Users `root` (UID 0) and `guest`
+- Groups `root`, `users`, `admin`
+- Unix-style modes (`rwxr-xr--`) with centralized checks in `permissions.py`
+- `whoami`, `id`, `su`, `passwd`, `users`, `groups`, `chmod`, `chown`
+- Access checks on `cat`, `write`, `cd`, and related file commands
+- Root bypasses normal permission restrictions
 
-Not implemented yet: persistence, users, permissions enforcement, processes, scheduler, memory manager, networking, and system monitoring.
+Part 4 — processes and scheduler:
+
+- Simulated process table (not real OS processes)
+- PID 1 = `init`, PID 2 = `shell`
+- Round Robin scheduler with ready queue and time slice
+- `ps`, `top`, `kill`, `sleep`, `jobs`, `scheduler`
+
+Not implemented yet: memory manager, programs/executables, networking, system monitor, persistence.
 
 ## Architecture
 
 ```
 termos/
-├── main.py              Boot display and process entry
-├── kernel/kernel.py     OS lifecycle; owns the filesystem
-├── shell/shell.py       Prompt, parsing, history, built-ins
-├── filesystem/          In-memory files, directories, path resolution
-└── core/
-    ├── constants.py     Shared names and reserved component slots
-    └── errors.py        Shell, kernel, and filesystem errors
+├── main.py
+├── kernel/          Owns filesystem, users, processes
+├── shell/           Prompt and commands
+├── filesystem/      In-memory VFS
+├── users/           Users and groups
+├── permissions/     Central permission checks
+├── processes/       Process table + Round Robin scheduler
+└── core/            Constants and errors
 ```
-
-`main.py` starts the kernel, prints the boot sequence, and runs the shell. The kernel owns the `FileSystem` instance. The shell uses that filesystem for the working directory and file commands. Nothing is written to the host disk, and nothing is saved after shutdown.
 
 ## Tests
 
 From the `termos` directory:
 
 ```bash
-python -m unittest tests.test_filesystem
+python -m unittest discover -s tests -v
 ```
