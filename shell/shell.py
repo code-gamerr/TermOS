@@ -2,27 +2,38 @@
 
 from __future__ import annotations
 
+import getpass
 import os
 import shlex
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from core.constants import DEFAULT_USER, HOME_PATH
+from core.constants import HOME_PATH
 from core.errors import (
     AlreadyExistsError,
+    AuthenticationError,
     CommandNotFoundError,
     DirectoryNotEmptyError,
     FileSystemError,
+    NetworkError,
     NotADirectoryError,
     NotAFileError,
     NotFoundError,
+    OutOfMemoryError,
+    PermissionDeniedError,
+    ProcessError,
+    ProgramError,
     ShellError,
 )
 from filesystem.directory import Directory
 from filesystem.node import Node
+from permissions.permissions import Permissions
+from processes.process import ProcessState
 
 if TYPE_CHECKING:
     from kernel.kernel import Kernel
+    from users.user import User
 
 CommandHandler = Callable[[list[str]], None]
 
@@ -30,11 +41,11 @@ CommandHandler = Callable[[list[str]], None]
 class Shell:
     """Interactive command shell.
 
-    Owns prompt, parsing, history, and the built-in commands available in
-    this part. Later parts can register more commands on ``commands``.
+    Uses the kernel for filesystem, users, and processes. Never owns those
+    subsystems itself.
     """
 
-    def __init__(self, kernel: Kernel, user: str = DEFAULT_USER, cwd: str = HOME_PATH) -> None:
+    def __init__(self, kernel: Kernel, cwd: str | None = None) -> None:
         self._kernel = kernel
         self.user = user
         self.path = kernel.filesystem.abspath(cwd, "/")

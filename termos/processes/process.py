@@ -39,6 +39,7 @@ class Process:
         self.state = ProcessState.NEW
         self.cpu_usage = 0.0
         self.memory_mb = memory_mb
+        self.mem_address: int | None = None
         self.start_time = time.time()
         self.exit_code: int | None = None
 

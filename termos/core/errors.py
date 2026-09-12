@@ -58,3 +58,18 @@ class AuthenticationError(TermOSError):
 
 class ProcessError(TermOSError):
     """A simulated process operation failed."""
+
+
+class OutOfMemoryError(TermOSError):
+    """The simulated memory manager cannot satisfy an allocation."""
+
+    def __init__(self, message: str = "TERMOS: Out of memory") -> None:
+        super().__init__(message)
+
+
+class ProgramError(TermOSError):
+    """A built-in program failed to run."""
+
+
+class NetworkError(TermOSError):
+    """A simulated network operation failed."""

@@ -9,6 +9,9 @@ HOME_PATH = "/home/root"
 ROOT_DIRECTORIES = ("bin", "home", "etc", "tmp", "var")
 
 BOOT_WIDTH = 40
+TOTAL_RAM_MB = 128
+MB_ADDRESS_UNIT = 0x100000
+DEFAULT_ALLOCATOR = "first_fit"
 
 # Slots reserved for later parts. Values stay None until those managers exist.
 COMPONENT_NAMES = (

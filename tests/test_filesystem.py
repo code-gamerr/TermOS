@@ -23,7 +23,8 @@ class FileSystemTest(unittest.TestCase):
             "/\n"
             "├── bin\n"
             "├── home\n"
-            "│   └── root\n"
+            "│   ├── root\n"
+            "│   └── guest\n"
             "├── etc\n"
             "├── tmp\n"
             "└── var",

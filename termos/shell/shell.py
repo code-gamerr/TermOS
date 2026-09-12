@@ -16,11 +16,14 @@ from core.errors import (
     CommandNotFoundError,
     DirectoryNotEmptyError,
     FileSystemError,
+    NetworkError,
     NotADirectoryError,
     NotAFileError,
     NotFoundError,
+    OutOfMemoryError,
     PermissionDeniedError,
     ProcessError,
+    ProgramError,
     ShellError,
 )
 from filesystem.directory import Directory
@@ -80,6 +83,18 @@ class Shell:
             "sleep": self._cmd_sleep,
             "jobs": self._cmd_jobs,
             "scheduler": self._cmd_scheduler,
+            "free": self._cmd_free,
+            "memory": self._cmd_memory,
+            "mem": self._cmd_memory,
+            "memmap": self._cmd_memmap,
+            "ifconfig": self._cmd_ifconfig,
+            "ip": self._cmd_ifconfig,
+            "ping": self._cmd_ping,
+            "netstat": self._cmd_netstat,
+            "connections": self._cmd_netstat,
+            "route": self._cmd_route,
+            "monitor": self._cmd_monitor,
+            "run": self._cmd_run,
         }
 
     @property
@@ -135,6 +150,16 @@ class Shell:
         name, args = argv[0], argv[1:]
         handler = self.commands.get(name)
         if handler is None:
+            if self._kernel.programs.has(name):
+                try:
+                    self._kernel.run_program(self, name, args)
+                except OutOfMemoryError:
+                    print("TERMOS: Out of memory")
+                except ProgramError as exc:
+                    print(exc)
+                except PermissionDeniedError:
+                    print("Permission denied")
+                return
             print(CommandNotFoundError(name))
             return
 
@@ -144,6 +169,12 @@ class Shell:
             print(exc)
         except PermissionDeniedError:
             print("Permission denied")
+        except OutOfMemoryError:
+            print("TERMOS: Out of memory")
+        except ProgramError as exc:
+            print(exc)
+        except NetworkError as exc:
+            print(f"network: {exc}")
 
     @staticmethod
     def parse(line: str) -> list[str]:
@@ -478,6 +509,80 @@ class Shell:
             for process in ready:
                 print(f"PID {process.pid} {process.name}")
 
+    def _cmd_free(self, _args: list[str]) -> None:
+        stats = self._kernel.memory.get_memory_stats()
+        print(f"{'':14}{'TOTAL':<10}{'USED':<10}{'FREE'}")
+        print(
+            f"{'RAM':14}"
+            f"{int(stats['total_mb'])}MB{'':<6}"
+            f"{int(stats['used_mb'])}MB{'':<6}"
+            f"{int(stats['free_mb'])}MB"
+        )
+
+    def _cmd_memory(self, _args: list[str]) -> None:
+        stats = self._kernel.memory.get_memory_stats()
+        print("Memory Manager")
+        print("--------------")
+        print(f"Total:        {int(stats['total_mb'])} MB")
+        print(f"Used:         {int(stats['used_mb'])} MB")
+        print(f"Free:         {int(stats['free_mb'])} MB")
+        print(f"Fragmentation: {stats['fragmentation']}%")
+        print(f"Allocator:     {stats['allocator']}")
+
+    def _cmd_memmap(self, _args: list[str]) -> None:
+        print(f"{'ADDRESS':<12}{'SIZE':<9}{'STATUS':<12}OWNER")
+        for block in self._kernel.memory.get_memory_map():
+            status = "FREE" if block.free else "USED"
+            size = f"{block.size_mb:g}MB"
+            print(f"{block.format_address():<12}{size:<9}{status:<12}{block.owner}")
+
+    def _cmd_ifconfig(self, _args: list[str]) -> None:
+        print(self._kernel.network.ifconfig())
+
+    def _cmd_ping(self, args: list[str]) -> None:
+        if not args:
+            raise ShellError("ping: missing host")
+        host = args[0]
+        count = 4
+        if len(args) >= 3 and args[1] == "-c":
+            try:
+                count = int(args[2])
+            except ValueError as exc:
+                raise ShellError("ping: invalid count") from exc
+        for line in self._kernel.network.ping(host, count=count):
+            print(line)
+
+    def _cmd_netstat(self, _args: list[str]) -> None:
+        print(self._kernel.network.netstat())
+
+    def _cmd_route(self, _args: list[str]) -> None:
+        print(self._kernel.network.route_table())
+
+    def _cmd_monitor(self, args: list[str]) -> None:
+        live = "--live" in args or "-l" in args
+        if not live:
+            _print_monitor(self._kernel.monitor.render())
+            return
+        try:
+            while True:
+                if os.name == "nt":
+                    os.system("cls")
+                else:
+                    print("\033[2J\033[H", end="", flush=True)
+                _print_monitor(self._kernel.monitor.render())
+                print("\n(Ctrl+C to exit)")
+                time.sleep(1.0)
+        except KeyboardInterrupt:
+            print()
+
+    def _cmd_run(self, args: list[str]) -> None:
+        if not args:
+            raise ShellError("run: missing program")
+        name, prog_args = args[0], args[1:]
+        if not self._kernel.programs.has(name):
+            raise CommandNotFoundError(name)
+        self._kernel.run_program(self, name, prog_args)
+
     def _print_process_table(self, processes: list) -> None:
         print(f"{'PID':<5} {'USER':<8} {'STATE':<10} {'CPU':<6} {'MEM':<6} COMMAND")
         for process in processes:
@@ -525,6 +630,13 @@ def _print_tree(rendered: str) -> None:
             .replace("└── ", "`-- ")
             .replace("│   ", "|   ")
         )
+
+
+def _print_monitor(rendered: str) -> None:
+    try:
+        print(rendered)
+    except UnicodeEncodeError:
+        print(rendered.replace("█", "#").replace("░", "-"))
 
 
 def _long_listing(name: str, node: Node) -> str:

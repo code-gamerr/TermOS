@@ -1,6 +1,6 @@
 # TERMOS
 
-TERMOS is a simulated mini operating system that runs entirely inside a terminal. It is not a real kernel. It is a Python program that mimics boot, a shell, a virtual filesystem, users, permissions, processes, and a CPU scheduler.
+TERMOS is a simulated mini operating system that runs entirely inside a terminal. It is not a real kernel. It is a Python program that simulates a boot sequence, shell, virtual filesystem, users, permissions, processes, a CPU scheduler, memory, built-in programs, networking, and system monitoring.
 
 ## How to run
 
@@ -16,52 +16,44 @@ Or from the `termos` directory:
 python main.py
 ```
 
-Leave the shell with `exit` or Ctrl+D.
-
 Default passwords: `root` / `root`, `guest` / `guest`.
 
 ## Current features
 
-Part 1 — foundation and shell: boot sequence, kernel, interactive prompt, `help`, `version`, `clear`, `echo`, `exit`.
+- Boot + interactive shell
+- In-memory VFS (`mkdir`, `cd`, `ls`, `cat`, `write`, `tree`, …)
+- Users/groups + Unix-like permissions (`su`, `chmod`, `chown`, …)
+- Process table + Round Robin scheduler (`ps`, `kill`, `scheduler`, …)
+- Simulated 128 MB RAM with First Fit / Best Fit (`free`, `memory`, `memmap`)
+- Built-in programs: `hello`, `calc`, `sysinfo`, `uptime`, `neofetch`, `editor`
+- Simulated network: `ifconfig`, `ping`, `netstat`, `route`
+- System monitor: `monitor`, `monitor --live`
 
-Part 2 — in-memory filesystem: `/bin`, `/home/root`, `/home/guest`, `/etc`, `/tmp`, `/var`, plus `mkdir`, `cd`, `pwd`, `ls`, `touch`, `cat`, `write`, `rm`, `rmdir`, `tree`.
-
-Part 3 — users and permissions:
-
-- Users `root` (UID 0) and `guest`
-- Groups `root`, `users`, `admin`
-- Unix-style modes (`rwxr-xr--`) with centralized checks in `permissions.py`
-- `whoami`, `id`, `su`, `passwd`, `users`, `groups`, `chmod`, `chown`
-- Access checks on `cat`, `write`, `cd`, and related file commands
-- Root bypasses normal permission restrictions
-
-Part 4 — processes and scheduler:
-
-- Simulated process table (not real OS processes)
-- PID 1 = `init`, PID 2 = `shell`
-- Round Robin scheduler with ready queue and time slice
-- `ps`, `top`, `kill`, `sleep`, `jobs`, `scheduler`
-
-Not implemented yet: memory manager, programs/executables, networking, system monitor, persistence.
+Not implemented yet: persistence, virtual memory/paging, pipes/redirection polish extras from Part 8.
 
 ## Architecture
 
 ```
 termos/
 ├── main.py
-├── kernel/          Owns filesystem, users, processes
-├── shell/           Prompt and commands
-├── filesystem/      In-memory VFS
-├── users/           Users and groups
-├── permissions/     Central permission checks
-├── processes/       Process table + Round Robin scheduler
-└── core/            Constants and errors
+├── kernel/          Owns all subsystems
+├── shell/
+├── filesystem/
+├── users/
+├── permissions/
+├── processes/
+├── memory/
+├── programs/
+├── network/
+├── monitor/
+└── core/
 ```
+
+Programs run through `Kernel.run_program`: process create → memory allocate → schedule → run → terminate → free memory.
 
 ## Tests
 
-From the `termos` directory:
-
 ```bash
+cd termos
 python -m unittest discover -s tests -v
 ```

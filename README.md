@@ -1,12 +1,10 @@
 # TERMOS
 
-TERMOS is a simulated mini operating system that runs entirely inside a terminal. It is not a real kernel. It is a Python program that mimics boot, a shell, and (in later parts) a virtual machine: filesystem, users, processes, memory, and networking.
+TERMOS is a simulated mini operating system that runs entirely inside a terminal. It is not a real kernel. It is a Python program that simulates a boot sequence, shell, virtual filesystem, users, permissions, processes, a CPU scheduler, memory, built-in programs, networking, and system monitoring.
 
 ## How to run
 
 Requires Python 3.11+.
-
-From the project root:
 
 ```bash
 python termos/main.py
@@ -18,38 +16,36 @@ Or from the `termos` directory:
 python main.py
 ```
 
-Leave the shell with `exit` or Ctrl+D.
+Default passwords: `root` / `root`, `guest` / `guest`.
 
 ## Current features
 
-Part 1 — foundation and shell:
+- Boot + interactive shell
+- In-memory VFS (`mkdir`, `cd`, `ls`, `cat`, `write`, `tree`, …)
+- Users/groups + Unix-like permissions (`su`, `chmod`, `chown`, …)
+- Process table + Round Robin scheduler (`ps`, `kill`, `scheduler`, …)
+- Simulated 128 MB RAM with First Fit / Best Fit (`free`, `memory`, `memmap`)
+- Built-in programs: `hello`, `calc`, `sysinfo`, `uptime`, `neofetch`, `editor`
+- Simulated network: `ifconfig`, `ping`, `netstat`, `route`
+- System monitor: `monitor`, `monitor --live`
 
-- Boot sequence
-- Kernel with name, version, uptime, boot, shutdown, and system info
-- Interactive shell prompt: `root@termos:~$`
-- Commands: `help`, `version`, `clear`, `echo`, `exit`
-- Quoted arguments and extra-space handling (`echo "hello world"`)
-- In-memory command history (arrow-key recall when `readline` is available)
-- Unknown-command errors
-
-Part 2 — in-memory filesystem:
-
-- Hierarchical filesystem that never touches the host disk
-- Initial tree: `/bin`, `/home/root`, `/etc`, `/tmp`, `/var`
-- Path resolution for absolute paths, relative paths, `.`, `..`, and `~`
-- Commands: `mkdir`, `cd`, `pwd`, `ls`, `ls -l`, `ls -a`, `touch`, `cat`, `write`, `rm`, `rmdir`, `tree`
-- Owner and permission fields are stored only; they are not enforced
-
-Not implemented yet: persistence, users, permissions enforcement, processes, scheduler, memory manager, networking, and system monitoring.
+Not implemented yet: persistence, virtual memory/paging, pipes/redirection polish extras from Part 8.
 
 ## Architecture
 
 ```
 termos/
-├── main.py              Boot display and process entry
-├── kernel/kernel.py     OS lifecycle; owns the filesystem
-├── shell/shell.py       Prompt, parsing, history, built-ins
-├── filesystem/          In-memory files, directories, path resolution
+├── main.py
+├── kernel/          Owns all subsystems
+├── shell/
+├── filesystem/
+├── users/
+├── permissions/
+├── processes/
+├── memory/
+├── programs/
+├── network/
+├── monitor/
 └── core/
     ├── constants.py     Shared names and reserved component slots
     └── errors.py        Shell, kernel, and filesystem errors

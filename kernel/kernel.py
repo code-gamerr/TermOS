@@ -1,21 +1,27 @@
-"""TERMOS kernel: boot state, uptime, and future service slots."""
+"""TERMOS kernel: boot state, uptime, and subsystem instances."""
 
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.constants import COMPONENT_NAMES, HOSTNAME, OS_NAME, OS_VERSION
-from core.errors import TermOSError
+from core.errors import NotFoundError, OutOfMemoryError, ProgramError, TermOSError
 from filesystem.filesystem import FileSystem
+from memory.memory_manager import MemoryManager
+from monitor.monitor import Monitor
+from network.network_manager import NetworkManager
+from processes.process import ProcessState
+from processes.process_manager import ProcessManager
+from programs.registry import ProgramRegistry
+from users.user_manager import UserManager
+
+if TYPE_CHECKING:
+    from shell.shell import Shell
 
 
 class Kernel:
-    """Owns OS identity, lifecycle, and subsystem instances.
-
-    The filesystem is mounted in memory. Process, memory, user, and network
-    managers are still empty slots.
-    """
+    """Owns OS identity, lifecycle, and subsystem instances."""
 
     def __init__(self) -> None:
         self.name = OS_NAME

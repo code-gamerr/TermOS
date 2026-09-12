@@ -4,14 +4,23 @@ from __future__ import annotations
 
 from core.errors import AlreadyExistsError, NotFoundError
 from filesystem.node import Node
+from permissions.permissions import DEFAULT_DIR_MODE
 
 
 class Directory(Node):
     """A directory that owns its child nodes."""
 
-    def __init__(self, name: str, parent: Node | None = None, owner: str = "root") -> None:
-        super().__init__(name, parent, owner)
-        self.mode = "rwxr-xr-x"
+    def __init__(
+        self,
+        name: str,
+        parent: Node | None = None,
+        uid: int = 0,
+        gid: int = 0,
+        owner: str = "root",
+        group: str = "root",
+        mode: int = DEFAULT_DIR_MODE,
+    ) -> None:
+        super().__init__(name, parent, uid, gid, owner, group, mode)
         self.children: dict[str, Node] = {}
 
     @property

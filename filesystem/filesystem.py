@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from core.constants import HOME_PATH, ROOT_DIRECTORIES
 from core.errors import (
     AlreadyExistsError,
@@ -14,12 +16,16 @@ from core.errors import (
 from filesystem.directory import Directory
 from filesystem.file import File
 from filesystem.node import Node
+from permissions.permissions import DEFAULT_DIR_MODE, DEFAULT_FILE_MODE, Permissions
+
+if TYPE_CHECKING:
+    from users.user import User
 
 
 class FileSystem:
     """Virtual filesystem owned by the kernel.
 
-    Paths are resolved inside TERMOS memory only. ``~`` means ``/home/root``.
+    Paths are resolved inside TERMOS memory only. ``~`` expands to ``self.home``.
     """
 
     def __init__(self) -> None:
@@ -31,6 +37,11 @@ class FileSystem:
         if not isinstance(home, Directory):
             raise FileSystemError(HOME_PATH)
         home.add(Directory("root", home))
+        home.add(Directory("guest", home, uid=1000, gid=100, owner="guest", group="users"))
+
+    def set_home(self, path: str) -> None:
+        """Update the path that ``~`` expands to."""
+        self.home = self.normalize(path)
 
     def normalize(self, path: str) -> str:
         """Collapse ``.``, ``..``, and repeated slashes into an absolute path."""
@@ -54,7 +65,7 @@ class FileSystem:
         return self.normalize(path)
 
     def display_path(self, path: str) -> str:
-        """Show the home directory as ``~``."""
+        """Show the current home directory as ``~``."""
         abs_path = self.normalize(path)
         if abs_path == self.home:
             return "~"
@@ -78,12 +89,18 @@ class FileSystem:
             node = child
         return node
 
-    def mkdir(self, path: str, cwd: str = "/") -> Directory:
+    def mkdir(self, path: str, cwd: str = "/", user: User | None = None) -> Directory:
         """Create a directory. Parents must already exist."""
         parent, name = self._parent_and_name(path, cwd)
+        if user is not None:
+            Permissions.require_write(user, parent)
         if name in parent.children:
             raise AlreadyExistsError(path)
-        directory = Directory(name, parent)
+        directory = Directory(
+            name,
+            parent,
+            **self._owner_kwargs(user, DEFAULT_DIR_MODE),
+        )
         parent.add(directory)
         return directory
 
