@@ -26,6 +26,7 @@ class Monitor:
         sleeping = sum(
             1 for p in active if p.state in {ProcessState.SLEEPING, ProcessState.WAITING}
         )
+        ready = sum(1 for p in active if p.state == ProcessState.READY)
         cpu = 0.0
         if active:
             cpu = min(100.0, sum(p.cpu_usage for p in active) * 3.0)

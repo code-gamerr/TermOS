@@ -17,7 +17,9 @@ class SysInfoProgram(Program):
     memory_mb = 3.0
 
     def run(self, kernel: Kernel, shell: Shell, args: list[str]) -> int:
-        mem = kernel.memory.get_memory_stats()
+        info = kernel.system_info()
+        mem = info["memory"]
+        user = kernel.users.require_current()
         print("TERMOS SYSTEM INFORMATION")
         print("-------------------------")
         print(f"OS:          {kernel.name}")

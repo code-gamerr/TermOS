@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import argparse
 import sys
 import time
 
-from core.constants import BOOT_WIDTH, OS_NAME
+from core import colors
+from core.constants import OS_NAME
 from kernel.kernel import Kernel
 from shell.shell import Shell
 

@@ -1,8 +1,8 @@
 # TERMOS
 
-TERMOS is a simulated mini operating system that runs entirely inside a terminal. It is not a real kernel. It is a Python program that simulates a boot sequence, shell, virtual filesystem, users, permissions, processes, a CPU scheduler, memory, built-in programs, networking, and system monitoring.
+**Terminal Operating System Simulator**
 
-## How to run
+TERMOS is a simulated mini operating system that runs entirely inside a terminal. It is a Python project for learning and demonstration — **not** a real kernel, and it does **not** replace or modify the host operating system.
 
 Requires Python 3.11+.
 

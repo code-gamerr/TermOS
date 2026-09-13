@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import getpass
+import io
 import os
 import shlex
 import time

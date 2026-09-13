@@ -28,3 +28,10 @@ class Process:
         command: str,
         parent_pid: int = 0,
         priority: int = 0,
+        memory_mb: float = 4.0,
+    ) -> None:
+        self.pid = pid
+        self.name = name
+        self.uid = uid
+        self.command = command
+        self.parent_pid = parent_pid

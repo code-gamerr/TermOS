@@ -30,3 +30,11 @@ class ProgramRegistry:
             CalculatorProgram(),
             SysInfoProgram(),
             UptimeProgram(),
+            NeofetchProgram(),
+            EditorProgram(),
+        ):
+            self.register(program)
+
+    def get(self, name: str) -> Program:
+        """Return a program by name."""
+        try:

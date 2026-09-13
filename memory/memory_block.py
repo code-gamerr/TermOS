@@ -31,3 +31,5 @@ class MemoryBlock:
         return self.start + int(self.size_mb * MB_ADDRESS_UNIT)
 
     def format_address(self) -> str:
+        """Return a hex address string."""
+        return f"0x{self.start:X}"

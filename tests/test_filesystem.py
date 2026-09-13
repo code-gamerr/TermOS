@@ -26,6 +26,7 @@ class FileSystemTest(unittest.TestCase):
             "│   ├── root\n"
             "│   └── guest\n"
             "├── etc\n"
+            "│   └── termos.conf\n"
             "├── tmp\n"
             "└── var",
         )

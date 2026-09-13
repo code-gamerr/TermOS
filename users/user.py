@@ -31,3 +31,9 @@ class User:
         self.groups = list(groups or [])
 
     @staticmethod
+    def hash_password(password: str) -> str:
+        """Return a deterministic password representation."""
+        return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+    def check_password(self, password: str) -> bool:
+        """Return whether ``password`` matches the stored hash."""

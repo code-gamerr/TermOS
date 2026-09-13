@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any
 
+from core.config import ConfigManager
 from core.constants import COMPONENT_NAMES, HOSTNAME, OS_NAME, OS_VERSION
 from core.errors import NotFoundError, OutOfMemoryError, ProgramError, TermOSError
 from filesystem.filesystem import FileSystem

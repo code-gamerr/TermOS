@@ -27,3 +27,10 @@ _OPS = {
 
 
 def safe_eval(expression: str) -> float:
+    """Evaluate a basic arithmetic expression without Python eval()."""
+    try:
+        tree = ast.parse(expression, mode="eval")
+    except SyntaxError as exc:
+        raise ProgramError("calc: invalid expression") from exc
+    return float(_eval_node(tree.body))
+

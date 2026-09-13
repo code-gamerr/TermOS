@@ -28,3 +28,9 @@ class ProcessManager:
         self,
         name: str,
         uid: int,
+        command: str,
+        parent_pid: int = 1,
+        priority: int = 0,
+        memory_mb: float = 4.0,
+        auto_schedule: bool = True,
+    ) -> Process:

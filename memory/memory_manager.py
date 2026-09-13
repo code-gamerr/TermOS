@@ -33,3 +33,10 @@ class MemoryManager:
 
         target.free = False
         target.owner = owner
+        target.pid = pid
+        target.allocated_at = __import__("time").time()
+        self.allocations += 1
+        return target
+
+    def free(self, address: int) -> None:
+        """Free the block starting at ``address`` and coalesce neighbors."""

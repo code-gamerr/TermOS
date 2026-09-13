@@ -31,6 +31,7 @@ class ProgramExecutionTest(unittest.TestCase):
     def test_execution_creates_process_and_frees_memory(self) -> None:
         before = self.kernel.memory.get_memory_stats()["used_mb"]
         output = io.StringIO()
+        self.kernel.verbose = True
         with redirect_stdout(output):
             self.shell.execute("calc 2 + 2")
         text = output.getvalue()

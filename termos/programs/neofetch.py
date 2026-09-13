@@ -17,7 +17,8 @@ class NeofetchProgram(Program):
     memory_mb = 3.0
 
     def run(self, kernel: Kernel, shell: Shell, args: list[str]) -> int:
-        mem = kernel.memory.get_memory_stats()
+        info = kernel.system_info()
+        mem = info["memory"]
         user = kernel.users.require_current().username
         banner = (
             "████████████████\n"
@@ -31,7 +32,7 @@ class NeofetchProgram(Program):
         print()
         print(f"OS:         {kernel.name} {kernel.version}")
         print("Kernel:     TERMOS Kernel")
-        print("Shell:      termos-sh")
+        print(f"Shell:      {kernel.config.get('shell', 'termos-sh')}")
         print(f"User:       {user}")
         print(f"Hostname:   {kernel.hostname}")
         print("CPU:        Simulated CPU")
@@ -39,4 +40,6 @@ class NeofetchProgram(Program):
         print(f"Processes:  {len(kernel.processes.active())}")
         print("Filesystem: VFS")
         print(f"Network:    {kernel.network.primary().name}")
+        print(f"Scheduler:  {info['scheduler']}")
+        print(f"Uptime:     {info['uptime']}")
         return 0

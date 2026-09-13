@@ -29,3 +29,11 @@ class NetworkManagerTest(unittest.TestCase):
         table = self.net.netstat()
         self.assertIn("ESTABLISHED", table)
         self.assertIn("10.0.0.2:22", table)
+        self.assertIn("default", self.net.route_table())
+
+
+class MonitorIntegrationTest(unittest.TestCase):
+    def test_monitor_tracks_live_metrics(self) -> None:
+        kernel = Kernel()
+        kernel.boot()
+        shell = Shell(kernel)

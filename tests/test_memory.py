@@ -31,3 +31,7 @@ class MemoryManagerTest(unittest.TestCase):
         self.mem.free(a.start)
         chosen = self.mem.allocate(8, "c", pid=3)
         self.assertEqual(chosen.start, a.start)
+
+    def test_best_fit(self) -> None:
+        self.mem.set_allocator("best_fit")
+        self.mem.allocate(20, "big", pid=1)

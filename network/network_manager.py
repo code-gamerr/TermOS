@@ -36,3 +36,9 @@ class NetworkManager:
         for iface in self.interfaces.values():
             lines.extend(
                 [
+                    iface.name,
+                    f"  inet {iface.ip}",
+                    f"  netmask {iface.netmask}",
+                    f"  gateway {iface.gateway}",
+                    f"  mac {iface.mac}",
+                    f"  status {iface.status}",

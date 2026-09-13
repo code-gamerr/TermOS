@@ -23,3 +23,7 @@ class Scheduler:
         self.algorithm = "Round Robin"
         self.ready: deque[int] = deque()
         self.running_pid: int | None = None
+
+    def enqueue(self, pid: int) -> None:
+        """Place a process on the ready queue."""
+        process = self.process_manager.get(pid)

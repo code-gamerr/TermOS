@@ -26,6 +26,7 @@ class FileSystemTest(unittest.TestCase):
             "│   ├── root\n"
             "│   └── guest\n"
             "├── etc\n"
+            "│   └── termos.conf\n"
             "├── tmp\n"
             "└── var",
         )
@@ -115,7 +116,7 @@ class ShellFilesystemTest(unittest.TestCase):
         self.assertEqual(self.shell.path, "/home/root")
         self.assertEqual(
             self.kernel.filesystem.read("/home/root/projects/hello.txt"),
-            "hello world",
+            "hello world\n",
         )
         text = output.getvalue()
         self.assertIn("hello world", text)

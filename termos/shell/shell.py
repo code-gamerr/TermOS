@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import getpass
+import io
 import os
 import shlex
 import time
 from collections.abc import Callable
+from contextlib import redirect_stdout
 from typing import TYPE_CHECKING
 
+from core import colors
 from core.constants import HOME_PATH
 from core.errors import (
     AlreadyExistsError,
@@ -30,6 +33,10 @@ from filesystem.directory import Directory
 from filesystem.node import Node
 from permissions.permissions import Permissions
 from processes.process import ProcessState
+from shell.completion import Completer
+from shell.demo import run_demo
+from shell.manpages import ManPages
+from shell.parser import parse_stage, split_pipeline
 
 if TYPE_CHECKING:
     from kernel.kernel import Kernel
@@ -53,6 +60,8 @@ class Shell:
         kernel.filesystem.set_home(user.home)
         self.history: list[str] = []
         self._running = False
+        self._stdin: str | None = None
+        self.man = ManPages()
         self.commands: dict[str, CommandHandler] = {
             "help": self._cmd_help,
             "version": self._cmd_version,
@@ -95,6 +104,15 @@ class Shell:
             "route": self._cmd_route,
             "monitor": self._cmd_monitor,
             "run": self._cmd_run,
+            "history": self._cmd_history,
+            "man": self._cmd_man,
+            "dmesg": self._cmd_dmesg,
+            "verbose": self._cmd_verbose,
+            "demo": self._cmd_demo,
+            "grep": self._cmd_grep,
+            "head": self._cmd_head,
+            "tail": self._cmd_tail,
+            "wc": self._cmd_wc,
         }
 
     @property
@@ -110,7 +128,10 @@ class Shell:
     @property
     def prompt(self) -> str:
         """Shell prompt, e.g. ``root@termos:~$ ``."""
-        return f"{self.user}@{self._kernel.hostname}:{self.cwd}$ "
+        user = colors.green(self.user)
+        host = colors.green(self._kernel.hostname)
+        path = colors.directory(self.cwd)
+        return f"{user}@{host}:{path}$ "
 
     def _current(self) -> User:
         return self._kernel.users.require_current()
@@ -137,44 +158,95 @@ class Shell:
             self.execute(line)
 
     def execute(self, line: str) -> None:
-        """Parse and run a single command line."""
+        """Parse and run a command line, including pipes and redirects."""
         try:
-            argv = self.parse(line)
+            segments = split_pipeline(line)
         except ShellError as exc:
-            print(exc)
+            print(colors.err(str(exc)))
             return
 
+        current = None
+        try:
+            for index, segment in enumerate(segments):
+                stage = parse_stage(segment)
+                stdin_text = current
+                for redirect in stage.redirects:
+                    if redirect.mode == "<":
+                        try:
+                            stdin_text = self._kernel.filesystem.read(
+                                redirect.path, self.path, user=self._current()
+                            )
+                        except NotFoundError:
+                            raise ShellError(
+                                f"termos: {redirect.path}: No such file or directory"
+                            ) from None
+                        except NotAFileError:
+                            raise ShellError(f"termos: {redirect.path}: Is a directory") from None
+
+                buffer = io.StringIO()
+                with redirect_stdout(buffer):
+                    self._dispatch(stage.argv, stdin_text)
+                output = buffer.getvalue()
+
+                wrote = False
+                for redirect in stage.redirects:
+                    if redirect.mode in {">", ">>"}:
+                        existing = ""
+                        if redirect.mode == ">>":
+                            try:
+                                existing = self._kernel.filesystem.read(
+                                    redirect.path, self.path, user=self._current()
+                                )
+                            except NotFoundError:
+                                existing = ""
+                        self._kernel.filesystem.write(
+                            redirect.path,
+                            existing + output,
+                            self.path,
+                            user=self._current(),
+                        )
+                        wrote = True
+                if wrote:
+                    current = ""
+                elif index == len(segments) - 1:
+                    if output:
+                        print(output, end="")
+                    current = output
+                else:
+                    current = output
+        except ShellError as exc:
+            print(colors.err(str(exc)))
+        except PermissionDeniedError:
+            print(colors.err("Permission denied"))
+        except OutOfMemoryError:
+            print(colors.err("TERMOS: Out of memory"))
+        except ProgramError as exc:
+            print(colors.err(str(exc)))
+        except NetworkError as exc:
+            print(colors.err(f"network: {exc}"))
+        except Exception as exc:  # noqa: BLE001 - keep the shell alive
+            if self._kernel.debug:
+                raise
+            print(colors.err(f"termos: {exc}"))
+
+    def _dispatch(self, argv: list[str], stdin_text: str | None = None) -> None:
+        """Run one argv list as a builtin or program."""
         if not argv:
             return
-
         name, args = argv[0], argv[1:]
-        handler = self.commands.get(name)
-        if handler is None:
-            if self._kernel.programs.has(name):
-                try:
-                    self._kernel.run_program(self, name, args)
-                except OutOfMemoryError:
-                    print("TERMOS: Out of memory")
-                except ProgramError as exc:
-                    print(exc)
-                except PermissionDeniedError:
-                    print("Permission denied")
-                return
-            print(CommandNotFoundError(name))
-            return
-
+        previous = self._stdin
+        self._stdin = stdin_text
         try:
-            handler(args)
-        except ShellError as exc:
-            print(exc)
-        except PermissionDeniedError:
-            print("Permission denied")
-        except OutOfMemoryError:
-            print("TERMOS: Out of memory")
-        except ProgramError as exc:
-            print(exc)
-        except NetworkError as exc:
-            print(f"network: {exc}")
+            handler = self.commands.get(name)
+            if handler is not None:
+                handler(args)
+                return
+            if self._kernel.programs.has(name):
+                self._kernel.run_program(self, name, args)
+                return
+            raise CommandNotFoundError(name)
+        finally:
+            self._stdin = previous
 
     @staticmethod
     def parse(line: str) -> list[str]:
@@ -185,17 +257,34 @@ class Shell:
             raise ShellError(f"termos: syntax error: {exc}") from exc
 
     def _enable_readline_history(self) -> None:
-        # ponytail: readline only — arrow-key history on Windows needs a line editor later.
         try:
             import readline
         except ImportError:
             return
-        readline.set_history_length(500)
+        readline.set_history_length(1000)
+        readline.set_completer(Completer(self))
+        try:
+            readline.parse_and_bind("tab: complete")
+        except Exception:
+            pass
 
     def _cmd_help(self, _args: list[str]) -> None:
-        print("TERMOS commands:")
-        for name in self.commands:
-            print(f"  {name}")
+        sections = {
+            "FILESYSTEM": ["ls", "cd", "pwd", "mkdir", "touch", "cat", "write", "rm", "rmdir", "tree"],
+            "PROCESS": ["ps", "top", "kill", "jobs", "scheduler", "sleep"],
+            "MEMORY": ["free", "memory", "memmap"],
+            "NETWORK": ["ifconfig", "ping", "netstat", "route"],
+            "SYSTEM": ["sysinfo", "uptime", "monitor", "neofetch", "dmesg", "demo", "verbose"],
+            "USER": ["whoami", "id", "su", "passwd", "chmod", "chown", "users", "groups"],
+            "TEXT": ["echo", "grep", "head", "tail", "wc"],
+            "SHELL": ["help", "man", "history", "clear", "version", "exit", "run"],
+        }
+        for title, names in sections.items():
+            print(colors.sysmsg(title))
+            for name in names:
+                if name in self.commands or self._kernel.programs.has(name):
+                    print(f"  {name}")
+            print()
 
     def _cmd_version(self, _args: list[str]) -> None:
         print(f"{self._kernel.name} v{self._kernel.version}")
@@ -257,8 +346,11 @@ class Shell:
             for name, entry in entries:
                 print(_long_listing(name, entry))
             return
-        for name, _entry in entries:
-            print(name)
+        for name, entry in entries:
+            if isinstance(entry, Directory):
+                print(colors.directory(name))
+            else:
+                print(name)
 
     def _cmd_touch(self, args: list[str]) -> None:
         if not args:
@@ -273,6 +365,10 @@ class Shell:
 
     def _cmd_cat(self, args: list[str]) -> None:
         if not args:
+            if self._stdin is not None:
+                text = self._stdin
+                print(text, end="" if not text or text.endswith("\n") else "\n")
+                return
             raise ShellError("cat: missing operand")
         for path in args:
             try:
@@ -289,6 +385,8 @@ class Shell:
         if not args:
             raise ShellError("write: missing operand")
         path, contents = args[0], " ".join(args[1:])
+        if contents and not contents.endswith("\n"):
+            contents += "\n"
         try:
             self._kernel.filesystem.write(path, contents, self.path, user=self._current())
         except NotFoundError:
@@ -561,7 +659,7 @@ class Shell:
     def _cmd_monitor(self, args: list[str]) -> None:
         live = "--live" in args or "-l" in args
         if not live:
-            _print_monitor(self._kernel.monitor.render())
+            _print_monitor(self._kernel.monitor.render(fancy=True))
             return
         try:
             while True:
@@ -569,9 +667,9 @@ class Shell:
                     os.system("cls")
                 else:
                     print("\033[2J\033[H", end="", flush=True)
-                _print_monitor(self._kernel.monitor.render())
+                _print_monitor(self._kernel.monitor.render(fancy=True))
                 print("\n(Ctrl+C to exit)")
-                time.sleep(1.0)
+                time.sleep(0.8)
         except KeyboardInterrupt:
             print()
 
@@ -582,6 +680,103 @@ class Shell:
         if not self._kernel.programs.has(name):
             raise CommandNotFoundError(name)
         self._kernel.run_program(self, name, prog_args)
+
+    def _cmd_history(self, args: list[str]) -> None:
+        if args and args[0] == "-c":
+            self.history.clear()
+            return
+        for index, line in enumerate(self.history, start=1):
+            print(f"{index:>4}  {line}")
+
+    def _cmd_man(self, args: list[str]) -> None:
+        if not args:
+            raise ShellError("man: what manual page do you want?")
+        try:
+            print(self.man.get(args[0]))
+        except NotFoundError:
+            raise ShellError(f"man: no manual entry for {args[0]}") from None
+
+    def _cmd_dmesg(self, _args: list[str]) -> None:
+        text = self._kernel.logger.render()
+        if text:
+            print(colors.sysmsg(text))
+
+    def _cmd_verbose(self, args: list[str]) -> None:
+        if not args or args[0] not in {"on", "off"}:
+            raise ShellError("verbose: usage: verbose on|off")
+        self._kernel.verbose = args[0] == "on"
+        print(f"verbose {'on' if self._kernel.verbose else 'off'}")
+
+    def _cmd_demo(self, _args: list[str]) -> None:
+        run_demo(self._kernel, self)
+
+    def _cmd_grep(self, args: list[str]) -> None:
+        if not args:
+            raise ShellError("grep: missing pattern")
+        pattern, files = args[0], args[1:]
+        if files:
+            for path in files:
+                try:
+                    text = self._kernel.filesystem.read(path, self.path, user=self._current())
+                except NotFoundError:
+                    raise ShellError(f"grep: {path}: No such file or directory") from None
+                for line in text.splitlines():
+                    if pattern in line:
+                        print(line)
+            return
+        if self._stdin is None:
+            raise ShellError("grep: missing file")
+        for line in self._stdin.splitlines():
+            if pattern in line:
+                print(line)
+
+    def _cmd_head(self, args: list[str]) -> None:
+        count = 10
+        path = None
+        index = 0
+        while index < len(args):
+            if args[index] == "-n" and index + 1 < len(args):
+                count = int(args[index + 1])
+                index += 2
+                continue
+            path = args[index]
+            index += 1
+        text = self._read_text_or_stdin(path)
+        for line in text.splitlines()[:count]:
+            print(line)
+
+    def _cmd_tail(self, args: list[str]) -> None:
+        count = 10
+        path = None
+        index = 0
+        while index < len(args):
+            if args[index] == "-n" and index + 1 < len(args):
+                count = int(args[index + 1])
+                index += 2
+                continue
+            path = args[index]
+            index += 1
+        text = self._read_text_or_stdin(path)
+        for line in text.splitlines()[-count:]:
+            print(line)
+
+    def _cmd_wc(self, args: list[str]) -> None:
+        path = args[0] if args else None
+        text = self._read_text_or_stdin(path)
+        lines = text.splitlines()
+        words = len(text.split())
+        bytes_count = len(text.encode("utf-8"))
+        print(f"{len(lines)} {words} {bytes_count}" + (f" {path}" if path else ""))
+
+    def _read_text_or_stdin(self, path: str | None) -> str:
+        if path:
+            try:
+                return self._kernel.filesystem.read(path, self.path, user=self._current())
+            except NotFoundError:
+                raise ShellError(f"{path}: No such file or directory") from None
+        if self._stdin is not None:
+            return self._stdin
+        raise ShellError("missing file")
 
     def _print_process_table(self, processes: list) -> None:
         print(f"{'PID':<5} {'USER':<8} {'STATE':<10} {'CPU':<6} {'MEM':<6} COMMAND")
@@ -636,7 +831,18 @@ def _print_monitor(rendered: str) -> None:
     try:
         print(rendered)
     except UnicodeEncodeError:
-        print(rendered.replace("█", "#").replace("░", "-"))
+        print(
+            rendered.replace("█", "#")
+            .replace("░", "-")
+            .replace("╔", "+")
+            .replace("╗", "+")
+            .replace("╚", "+")
+            .replace("╝", "+")
+            .replace("╠", "+")
+            .replace("╣", "+")
+            .replace("═", "-")
+            .replace("║", "|")
+        )
 
 
 def _long_listing(name: str, node: Node) -> str:

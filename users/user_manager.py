@@ -30,3 +30,11 @@ class UserManager:
             home="/home/root",
             password="root",
             groups=["root", "admin"],
+        )
+        self.add_user(
+            "guest",
+            uid=1000,
+            gid=100,
+            home="/home/guest",
+            password="guest",
+            groups=["users"],

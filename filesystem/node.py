@@ -45,6 +45,7 @@ class Node:
     def mode_string(self) -> str:
         """Return the permission string without the type prefix."""
         return Permissions.mode_to_string(self.mode)
+
     def touch_modified(self) -> None:
         """Update the modification timestamp."""
         self.modified_at = time.time()

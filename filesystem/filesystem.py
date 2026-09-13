@@ -38,6 +38,9 @@ class FileSystem:
             raise FileSystemError(HOME_PATH)
         home.add(Directory("root", home))
         home.add(Directory("guest", home, uid=1000, gid=100, owner="guest", group="users"))
+        from core.config import ConfigManager
+
+        ConfigManager.install(self)
 
     def set_home(self, path: str) -> None:
         """Update the path that ``~`` expands to."""
@@ -104,7 +107,7 @@ class FileSystem:
         parent.add(directory)
         return directory
 
-    def touch(self, path: str, cwd: str = "/") -> File:
+    def touch(self, path: str, cwd: str = "/", user: User | None = None) -> File:
         """Create an empty file, or update the timestamp if it exists."""
         parent, name = self._parent_and_name(path, cwd)
         existing = parent.children.get(name)

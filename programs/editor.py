@@ -36,3 +36,11 @@ class EditorProgram(Program):
                 print(line)
         buffer: list[str] = list(lines)
         while True:
+            try:
+                line = input()
+            except EOFError:
+                line = "."
+            if line == ".q":
+                print("editor: discarded changes")
+                return 1
+            if line == ".":

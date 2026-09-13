@@ -30,3 +30,7 @@ class Permissions:
             (EXECUTE, "x"),
         )
         chars: list[str] = []
+        for shift in (6, 3, 0):
+            triplet = (mode >> shift) & 0o7
+            for flag, letter in bits:
+                chars.append(letter if triplet & flag else "-")

@@ -29,3 +29,6 @@ class ProcessManagerTest(unittest.TestCase):
         self.pm.bootstrap()
         worker = self.pm.create("worker", uid=0, command="worker")
         self.assertEqual(worker.pid, 3)
+        self.assertIn(worker.state, {ProcessState.READY, ProcessState.RUNNING})
+        self.pm.terminate(worker.pid)
+        self.assertEqual(worker.state, ProcessState.TERMINATED)

@@ -38,6 +38,9 @@ class FileSystem:
             raise FileSystemError(HOME_PATH)
         home.add(Directory("root", home))
         home.add(Directory("guest", home, uid=1000, gid=100, owner="guest", group="users"))
+        from core.config import ConfigManager
+
+        ConfigManager.install(self)
 
     def set_home(self, path: str) -> None:
         """Update the path that ``~`` expands to."""

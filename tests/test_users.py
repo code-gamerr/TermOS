@@ -27,3 +27,9 @@ class UserManagerTest(unittest.TestCase):
     def test_user_creation(self) -> None:
         user = self.users.add_user("alice", uid=1001, gid=100, home="/home/alice", password="secret")
         self.assertEqual(user.username, "alice")
+        self.assertIn("alice", self.users.get_group("users").members)
+
+    def test_login_su(self) -> None:
+        self.users.switch_user("guest", "guest")
+        self.assertEqual(self.users.current.username, "guest")
+        with self.assertRaises(AuthenticationError):
