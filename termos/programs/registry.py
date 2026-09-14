@@ -5,6 +5,7 @@ from __future__ import annotations
 from core.errors import NotFoundError
 from programs.calculator import CalculatorProgram
 from programs.editor import EditorProgram
+from programs.fortune import FortuneProgram
 from programs.hello import HelloProgram
 from programs.neofetch import NeofetchProgram
 from programs.program import Program
@@ -32,6 +33,7 @@ class ProgramRegistry:
             UptimeProgram(),
             NeofetchProgram(),
             EditorProgram(),
+            FortuneProgram(),
         ):
             self.register(program)
 

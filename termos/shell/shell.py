@@ -37,6 +37,7 @@ from shell.completion import Completer
 from shell.demo import run_demo
 from shell.manpages import ManPages
 from shell.parser import parse_stage, split_pipeline
+from shell.scripting import ScriptEngine, can_execute_script, is_script_path
 
 if TYPE_CHECKING:
     from kernel.kernel import Kernel
@@ -61,6 +62,23 @@ class Shell:
         self.history: list[str] = []
         self._running = False
         self._stdin: str | None = None
+        self.last_status = 0
+        self.env: dict[str, str] = {
+            "HOME": user.home,
+            "USER": user.username,
+            "SHELL": kernel.config.get("shell", "termos-sh"),
+            "HOSTNAME": kernel.hostname,
+            "PATH": "/bin",
+            "PWD": self.path,
+            "0": "termos-sh",
+            "#": "0",
+            "?": "0",
+        }
+        self.aliases: dict[str, str] = {
+            "ll": "ls -l",
+            "la": "ls -a",
+        }
+        self.scripts = ScriptEngine(self)
         self.man = ManPages()
         self.commands: dict[str, CommandHandler] = {
             "help": self._cmd_help,
@@ -93,6 +111,7 @@ class Shell:
             "jobs": self._cmd_jobs,
             "scheduler": self._cmd_scheduler,
             "free": self._cmd_free,
+            "df": self._cmd_df,
             "memory": self._cmd_memory,
             "mem": self._cmd_memory,
             "memmap": self._cmd_memmap,
@@ -113,6 +132,17 @@ class Shell:
             "head": self._cmd_head,
             "tail": self._cmd_tail,
             "wc": self._cmd_wc,
+            "export": self._cmd_export,
+            "unset": self._cmd_unset,
+            "env": self._cmd_env,
+            "set": self._cmd_set,
+            "alias": self._cmd_alias,
+            "unalias": self._cmd_unalias,
+            "sh": self._cmd_sh,
+            "source": self._cmd_source,
+            ".": self._cmd_source,
+            "test": self._cmd_test,
+            "[": self._cmd_test_bracket,
         }
 
     @property
@@ -157,15 +187,40 @@ class Shell:
             self.history.append(line)
             self.execute(line)
 
-    def execute(self, line: str) -> None:
+    def execute(self, line: str) -> int:
         """Parse and run a command line, including pipes and redirects."""
+        return self.execute_line(line, from_script=False)
+
+    def execute_line(self, line: str, from_script: bool = False) -> int:
+        """Execute one logical line and return the exit status."""
+        self.env["PWD"] = self.path
+        self.env["USER"] = self.user
+        self.env["HOME"] = self._current().home
+        self.env["?"] = str(self.last_status)
+
         try:
-            segments = split_pipeline(line)
+            stripped = self.scripts._strip_comment(line.strip())
+            if not from_script and re_full_assign(stripped):
+                from shell.scripting import _ASSIGN
+
+                match = _ASSIGN.match(stripped)
+                assert match is not None
+                name, value = match.group(1), match.group(2)
+                self.env[name] = self.scripts._unquote(self.scripts.expand(value))
+                self.last_status = 0
+                return 0
+
+            expanded = self.scripts.expand(stripped) if stripped else stripped
+            if not expanded:
+                return 0
+            segments = split_pipeline(expanded)
         except ShellError as exc:
             print(colors.err(str(exc)))
-            return
+            self.last_status = 1
+            return 1
 
         current = None
+        status = 0
         try:
             for index, segment in enumerate(segments):
                 stage = parse_stage(segment)
@@ -185,7 +240,7 @@ class Shell:
 
                 buffer = io.StringIO()
                 with redirect_stdout(buffer):
-                    self._dispatch(stage.argv, stdin_text)
+                    status = self._dispatch(stage.argv, stdin_text)
                 output = buffer.getvalue()
 
                 wrote = False
@@ -214,39 +269,106 @@ class Shell:
                     current = output
                 else:
                     current = output
+            self.last_status = status
+            self.env["?"] = str(status)
+            return status
         except ShellError as exc:
             print(colors.err(str(exc)))
+            self.last_status = 1
+            return 1
         except PermissionDeniedError:
             print(colors.err("Permission denied"))
+            self.last_status = 1
+            return 1
         except OutOfMemoryError:
             print(colors.err("TERMOS: Out of memory"))
+            self.last_status = 1
+            return 1
         except ProgramError as exc:
             print(colors.err(str(exc)))
+            self.last_status = 1
+            return 1
         except NetworkError as exc:
             print(colors.err(f"network: {exc}"))
+            self.last_status = 1
+            return 1
         except Exception as exc:  # noqa: BLE001 - keep the shell alive
             if self._kernel.debug:
                 raise
             print(colors.err(f"termos: {exc}"))
+            self.last_status = 1
+            return 1
 
-    def _dispatch(self, argv: list[str], stdin_text: str | None = None) -> None:
-        """Run one argv list as a builtin or program."""
+    def _dispatch(self, argv: list[str], stdin_text: str | None = None) -> int:
+        """Run one argv list as a builtin, program, alias, or script."""
         if not argv:
-            return
+            return 0
         name, args = argv[0], argv[1:]
+
+        # Alias expansion (single shot).
+        if name in self.aliases:
+            aliased = self.parse(self.scripts.expand(self.aliases[name]))
+            argv = aliased + args
+            name, args = argv[0], argv[1:]
+
         previous = self._stdin
         self._stdin = stdin_text
         try:
+            if is_script_path(name) or name.endswith(".sh"):
+                return self._run_script_path(name, args)
+
             handler = self.commands.get(name)
             if handler is not None:
                 handler(args)
-                return
+                if name in {"test", "[", "sh", "source", "."}:
+                    return self.last_status
+                return 0
+
             if self._kernel.programs.has(name):
-                self._kernel.run_program(self, name, args)
-                return
+                code = self._kernel.run_program(self, name, args)
+                return int(code)
+
+            # Bare script name in cwd / PATH-like /bin
+            for candidate in (name, f"./{name}", f"/bin/{name}"):
+                if self._try_script(candidate, args):
+                    return self.last_status
+
             raise CommandNotFoundError(name)
+        except CommandNotFoundError as exc:
+            print(colors.err(str(exc)))
+            return 127
         finally:
             self._stdin = previous
+
+    def _try_script(self, path: str, args: list[str]) -> bool:
+        try:
+            node = self._kernel.filesystem.resolve(path, self.path)
+        except (NotFoundError, NotAFileError):
+            return False
+        from filesystem.file import File
+
+        if not isinstance(node, File):
+            return False
+        if not can_execute_script(self, path):
+            return False
+        self.last_status = self.scripts.run_file(path, argv=args)
+        return True
+
+    def _run_script_path(self, path: str, args: list[str]) -> int:
+        if not can_execute_script(self, path):
+            # Readable scripts can still be run via explicit path if execute set;
+            # otherwise require `sh`.
+            try:
+                node = self._kernel.filesystem.resolve(path, self.path)
+                from filesystem.file import File
+
+                if isinstance(node, File):
+                    raise ShellError(f"termos: {path}: Permission denied")
+            except (NotFoundError, NotAFileError):
+                raise CommandNotFoundError(path) from None
+            raise ShellError(f"termos: {path}: Permission denied")
+        self.last_status = self.scripts.run_file(path, argv=args)
+        return self.last_status
 
     @staticmethod
     def parse(line: str) -> list[str]:
@@ -270,14 +392,14 @@ class Shell:
 
     def _cmd_help(self, _args: list[str]) -> None:
         sections = {
-            "FILESYSTEM": ["ls", "cd", "pwd", "mkdir", "touch", "cat", "write", "rm", "rmdir", "tree"],
+            "FILESYSTEM": ["ls", "cd", "pwd", "mkdir", "touch", "cat", "write", "rm", "rmdir", "tree", "df"],
             "PROCESS": ["ps", "top", "kill", "jobs", "scheduler", "sleep"],
             "MEMORY": ["free", "memory", "memmap"],
             "NETWORK": ["ifconfig", "ping", "netstat", "route"],
-            "SYSTEM": ["sysinfo", "uptime", "monitor", "neofetch", "dmesg", "demo", "verbose"],
+            "SYSTEM": ["sysinfo", "uptime", "monitor", "neofetch", "fortune", "dmesg", "demo", "verbose"],
             "USER": ["whoami", "id", "su", "passwd", "chmod", "chown", "users", "groups"],
             "TEXT": ["echo", "grep", "head", "tail", "wc"],
-            "SHELL": ["help", "man", "history", "clear", "version", "exit", "run"],
+            "SHELL": ["help", "man", "history", "clear", "version", "exit", "run", "export", "env", "alias", "sh", "source"],
         }
         for title, names in sections.items():
             print(colors.sysmsg(title))
@@ -617,6 +739,21 @@ class Shell:
             f"{int(stats['free_mb'])}MB"
         )
 
+    def _cmd_df(self, _args: list[str]) -> None:
+        snap = self._kernel.monitor.snapshot()
+        used = float(snap["fs_used_mb"])
+        free = float(snap["fs_free_mb"])
+        total = used + free
+        pct = int(round((used / total) * 100)) if total else 0
+        print(f"{'Filesystem':<14}{'Size':<10}{'Used':<10}{'Avail':<10}{'Use%':<6}Mounted on")
+        print(
+            f"{'vfs':<14}"
+            f"{total:.0f}MB{'':<6}"
+            f"{used:.2f}MB{'':<4}"
+            f"{free:.0f}MB{'':<5}"
+            f"{pct}%{'':<4}/"
+        )
+
     def _cmd_memory(self, _args: list[str]) -> None:
         stats = self._kernel.memory.get_memory_stats()
         print("Memory Manager")
@@ -768,6 +905,74 @@ class Shell:
         bytes_count = len(text.encode("utf-8"))
         print(f"{len(lines)} {words} {bytes_count}" + (f" {path}" if path else ""))
 
+    def _cmd_export(self, args: list[str]) -> None:
+        if not args:
+            for key in sorted(self.env):
+                if key.isdigit() or key in {"?", "#", "@", "*"}:
+                    continue
+                print(f"export {key}={self.env[key]}")
+            return
+        for item in args:
+            if "=" in item:
+                name, _, value = item.partition("=")
+                self.env[name] = self.scripts._unquote(self.scripts.expand(value))
+            elif item in self.env:
+                pass
+            else:
+                self.env[item] = ""
+
+    def _cmd_unset(self, args: list[str]) -> None:
+        for name in args:
+            self.env.pop(name, None)
+
+    def _cmd_env(self, _args: list[str]) -> None:
+        for key in sorted(self.env):
+            if key.isdigit() or key in {"?", "#", "@", "*"}:
+                continue
+            print(f"{key}={self.env[key]}")
+
+    def _cmd_set(self, _args: list[str]) -> None:
+        self._cmd_env(_args)
+
+    def _cmd_alias(self, args: list[str]) -> None:
+        if not args:
+            for name in sorted(self.aliases):
+                print(f"alias {name}='{self.aliases[name]}'")
+            return
+        for item in args:
+            if "=" not in item:
+                if item in self.aliases:
+                    print(f"alias {item}='{self.aliases[item]}'")
+                continue
+            name, _, value = item.partition("=")
+            self.aliases[name] = self.scripts._unquote(value)
+
+    def _cmd_unalias(self, args: list[str]) -> None:
+        for name in args:
+            self.aliases.pop(name, None)
+
+    def _cmd_sh(self, args: list[str]) -> None:
+        if not args:
+            raise ShellError("sh: missing script")
+        path, script_args = args[0], args[1:]
+        self.last_status = self.scripts.run_file(path, argv=script_args)
+
+    def _cmd_source(self, args: list[str]) -> None:
+        if not args:
+            raise ShellError("source: missing filename")
+        self.last_status = self.scripts.run_file(args[0], argv=args[1:])
+
+    def _cmd_test(self, args: list[str]) -> None:
+        ok = self.scripts._test(" ".join(args))
+        self.last_status = 0 if ok else 1
+
+    def _cmd_test_bracket(self, args: list[str]) -> None:
+        if args and args[-1] == "]":
+            args = args[:-1]
+        else:
+            raise ShellError("[: missing `]'")
+        self._cmd_test(args)
+
     def _read_text_or_stdin(self, path: str | None) -> str:
         if path:
             try:
@@ -790,6 +995,19 @@ class Shell:
                 f"{process.pid:<5} {username:<8} {process.state.value:<10} "
                 f"{process.cpu_usage:<6.1f} {mem:<6} {process.command}"
             )
+
+
+def re_full_assign(assign: str) -> bool:
+    """Return True when the whole line is a NAME=value assignment."""
+    from shell.scripting import _ASSIGN
+
+    cleaned = ScriptEngine._strip_comment(assign.strip())
+    if not cleaned or cleaned.startswith("#"):
+        return False
+    match = _ASSIGN.match(cleaned)
+    if not match:
+        return False
+    return cleaned == match.group(0)
 
 
 def _split_flags(args: list[str]) -> tuple[set[str], list[str]]:

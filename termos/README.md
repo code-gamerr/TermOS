@@ -40,8 +40,10 @@ Default passwords: `root` / `root`, `guest` / `guest`.
 - Simulated 128 MB RAM (First Fit / Best Fit)
 - Built-in programs: `hello`, `calc`, `sysinfo`, `uptime`, `neofetch`, `editor`
 - Simulated network (`eth0`, `ping`, `netstat`, `route`)
-- System monitor (`monitor`, `monitor --live`)
-- Kernel log (`dmesg`), manuals (`man`), and `demo`
+- `demo` command and kernel `dmesg` log
+- Shell scripting engine (`sh`, `source`, `./script.sh`) with variables, `if`/`for`/`while`, aliases, and `test`/[ ]
+
+Not implemented yet: persistence, virtual memory/paging.
 
 ## Example session
 

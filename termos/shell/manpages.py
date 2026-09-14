@@ -371,6 +371,62 @@ SYNOPSIS
 
 DESCRIPTION
     Exercises filesystem, processes, memory, programs, and networking.""",
+    "df": """DF(1)
+
+NAME
+    df - report virtual filesystem disk usage
+
+SYNOPSIS
+    df
+
+DESCRIPTION
+    Shows used and free space for the in-memory TERMOS VFS.""",
+    "fortune": """FORTUNE(1)
+
+NAME
+    fortune - print a random TERMOS tip
+
+SYNOPSIS
+    fortune
+
+DESCRIPTION
+    Displays a short quote about the simulator.""",
+    "sh": """SH(1)
+
+NAME
+    sh - run a TERMOS shell script
+
+SYNOPSIS
+    sh <script> [args...]
+    source <script>
+    ./script.sh
+
+DESCRIPTION
+    Executes scripts from the virtual filesystem.
+
+    Supports variables, export, if/elif/else/fi, for/do/done,
+    while/do/done, test/[ ], aliases, and exit codes ($?).
+
+EXAMPLES
+    sh /bin/hello.sh TERMOS
+    chmod 755 myscript.sh
+    ./myscript.sh""",
+    "export": """EXPORT(1)
+
+NAME
+    export - set shell variables
+
+SYNOPSIS
+    export
+    export NAME=value""",
+    "alias": """ALIAS(1)
+
+NAME
+    alias - define command shortcuts
+
+SYNOPSIS
+    alias
+    alias name='command'""",
     "dmesg": """DMESG(1)
 
 NAME

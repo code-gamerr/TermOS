@@ -22,6 +22,11 @@ class FileSystemTest(unittest.TestCase):
             self.fs.tree(),
             "/\n"
             "├── bin\n"
+            "│   ├── hello.sh\n"
+            "│   ├── greet.sh\n"
+            "│   ├── countdown.sh\n"
+            "│   ├── syscheck.sh\n"
+            "│   └── args.sh\n"
             "├── home\n"
             "│   ├── root\n"
             "│   └── guest\n"

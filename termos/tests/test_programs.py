@@ -25,7 +25,7 @@ class ProgramExecutionTest(unittest.TestCase):
         self.shell = Shell(self.kernel)
 
     def test_program_registration(self) -> None:
-        for name in ("hello", "calc", "sysinfo", "uptime", "neofetch", "editor"):
+        for name in ("hello", "calc", "sysinfo", "uptime", "neofetch", "editor", "fortune"):
             self.assertTrue(self.kernel.programs.has(name))
 
     def test_execution_creates_process_and_frees_memory(self) -> None:
@@ -55,10 +55,15 @@ class ProgramExecutionTest(unittest.TestCase):
             self.shell.execute("hello")
             self.shell.execute("sysinfo")
             self.shell.execute("uptime")
+            self.shell.execute("fortune")
+            self.shell.execute("df")
         text = output.getvalue()
         self.assertIn("Hello from TERMOS!", text)
         self.assertIn("TERMOS SYSTEM INFORMATION", text)
         self.assertIn("Uptime:", text)
+        self.assertTrue(len(text.strip()) > 40)
+        self.assertIn("Filesystem", text)
+        self.assertIn("vfs", text)
 
 
 if __name__ == "__main__":

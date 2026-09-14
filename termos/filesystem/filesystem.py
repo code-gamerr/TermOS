@@ -41,6 +41,72 @@ class FileSystem:
         from core.config import ConfigManager
 
         ConfigManager.install(self)
+        self._install_example_scripts()
+
+    def _install_example_scripts(self) -> None:
+        """Seed demo shell scripts into /bin (executable)."""
+        scripts = {
+            "hello.sh": """#!/bin/termos-sh
+# Simple greeting script
+NAME=${1:-world}
+echo "Hello, $NAME from TERMOS scripting!"
+""",
+            "greet.sh": """#!/bin/termos-sh
+USER_NAME=${1:-$USER}
+echo "Welcome, $USER_NAME"
+echo "Home is $HOME"
+echo "Shell is $SHELL"
+""",
+            "countdown.sh": """#!/bin/termos-sh
+# Count down using a while loop
+n=${1:-3}
+while [ $n -gt 0 ]
+do
+  echo "tick $n"
+  n=$((n - 1))
+done
+echo "done"
+""",
+            "syscheck.sh": """#!/bin/termos-sh
+echo "== TERMOS syscheck =="
+echo "User: $USER"
+whoami
+echo "Processes:"
+ps | head -n 5
+if [ -d /home ]
+then
+  echo "home directory exists"
+else
+  echo "home missing"
+fi
+for item in bin etc tmp var
+do
+  echo "checking /$item"
+done
+echo "status=$?"
+""",
+            "args.sh": """#!/bin/termos-sh
+echo "script=$0"
+echo "argc=$#"
+echo "args=$@"
+for arg in "$@"
+do
+  echo "arg:$arg"
+done
+""",
+        }
+        # Arithmetic in countdown uses $(( )) which we don't support yet — simplify countdown.
+        scripts["countdown.sh"] = """#!/bin/termos-sh
+# Count using a for-loop
+for n in 3 2 1
+do
+  echo "tick $n"
+done
+echo "liftoff"
+"""
+        for name, body in scripts.items():
+            node = self.write(f"/bin/{name}", body if body.endswith("\n") else body + "\n", "/")
+            node.mode = 0o755
 
     def set_home(self, path: str) -> None:
         """Update the path that ``~`` expands to."""
